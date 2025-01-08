@@ -1,0 +1,138 @@
+// server.js
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+// Apply security middlewares
+app.use(helmet()); // Adds various HTTP headers for security
+app.use(cors());   // Enables CORS with default settings
+
+// Rate limiter to prevent abuse
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
+
+// Storage configuration for multer
+const upload = multer({
+  dest: 'uploads/',
+});
+
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Handle file upload
+app.post('/upload', upload.single('file'), (req, res) => {
+  res.json({
+    message: 'File uploaded successfully',
+    fileName: req.file.filename,
+    originalName: req.file.originalname,
+  });
+});
+
+// Handle socket connections
+io.on('connection', (socket) => {
+  console.log('A user connected');
+
+  socket.on('chat message', (msg) => {
+    io.emit('chat message', msg);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('A user disconnected');
+  });
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
+
+// Instructions:
+// 1. Run `npm install express http socket.io multer helmet cors express-rate-limit` to install dependencies.
+// 2. Create a 'public' folder and add an HTML file for the chat UI.
+// 3. Run `node server.js` to start the server.
+
+// public/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secure Team Chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #messages { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
+    #form { display: flex; margin-top: 10px; }
+    #input { flex: 1; padding: 10px; }
+    #send { padding: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Secure Team Chat</h1>
+  <div id="messages"></div>
+  <form id="form">
+    <input id="input" autocomplete="off" placeholder="Type a message..." />
+    <button id="send" type="submit">Send</button>
+  </form>
+  <h2>Upload File</h2>
+  <form id="uploadForm" enctype="multipart/form-data">
+    <input type="file" id="fileInput" name="file" />
+    <button type="submit">Upload</button>
+  </form>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const form = document.getElementById('form');
+    const input = document.getElementById('input');
+    const messages = document.getElementById('messages');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (input.value) {
+        socket.emit('chat message', input.value);
+        input.value = '';
+      }
+    });
+
+    socket.on('chat message', (msg) => {
+      const item = document.createElement('div');
+      item.textContent = msg;
+      messages.appendChild(item);
+      messages.scrollTop = messages.scrollHeight;
+    });
+
+    // File upload handling
+    const uploadForm = document.getElementById('uploadForm');
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById('fileInput');
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      
+      try {
+        const response = await fetch('/upload', {
+          method: 'POST',
+          body: formData,
+        });
+        const result = await response.json();
+        alert(result.message);
+      } catch (error) {
+        alert('File upload failed');
+      }
+    });
+  </script>
+</body>
+</html>
